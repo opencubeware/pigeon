@@ -30,7 +30,7 @@
 -define(B0_ARD, 0).
 -define(B0_ARC, 0).
 %% register RF_CH 0x05
--define(B0_RF_CH, <<23>>).
+-define(B0_RF_CH, <<5>>).
 %% register RF_SETUP 0x06
 -define(B0_RF_DR, 0).
 -define(B0_RF_PWR, 3).

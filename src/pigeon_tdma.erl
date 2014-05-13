@@ -14,13 +14,13 @@
          terminate/2,
          code_change/3]).
 
--record(state, {next, buffer, pending}).
+-record(state, {buffer}).
 
 %% length of a tdma window in miliseconds
--define(TDMA_WINDOW, 66).
+-define(TDMA_WINDOW, 50).
 -define(MAX_RETRIES, 100).
 -define(SYNC, <<250, "syn">>).
--define(RECEIVE_MESSAGE, fun(Msg) -> self() ! {message, Msg} end).
+-define(RECEIVE_MESSAGE, fun(Msg) -> ?MODULE ! {message, Msg} end).
 
 %%%===================================================================
 %%% API
@@ -37,13 +37,11 @@ send(Id, Data) when byte_size(Data) =< 28 ->
 init([]) ->
     process_flag(trap_exit, true),
     pigeon_rfm70:add_callback(?RECEIVE_MESSAGE),
-    schedule_window(),
-    {ok, #state{next = send_sync, buffer = []}}.
+    schedule_window(send_sync),
+    {ok, #state{buffer = []}}.
 
 handle_call({send, Id, Data}, _From, #state{buffer=Buffer}=State) ->
-    Length = byte_size(Data),
-    Packet = <<Id:8,0:1,1:7,Length:8,0:8,Data/binary>>,
-    NewBuffer = lists:append(Buffer, [Packet]),
+    NewBuffer = add_packet_to_ack(Buffer, Id, Data, []),
     {reply, ok, State#state{buffer=NewBuffer}};
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -52,15 +50,16 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info(window, #state{next=send_sync}=State) ->
+handle_info(send_sync, State) ->
     pigeon_rfm70:send(?SYNC),
-    schedule_window(),
-    {noreply, State#state{next=flush_buffer}};
-handle_info(window, #state{next=flush_buffer, buffer=Buf}=State) ->
+    schedule_window(flush_buffer),
+    {noreply, State};
+handle_info(flush_buffer, #state{buffer=Buf}=State) ->
     NewBuf = send_buffer(Buf, []),
-    schedule_window(),
-    {noreply, State#state{buffer=NewBuf, next=send_sync}};
+    schedule_window(send_sync),
+    {noreply, State#state{buffer=NewBuf}};
 handle_info({message, Message}, #state{buffer=Buf}=State) ->
+    error_logger:info_msg("Received message: ~p", [Message]),
     NewBuf = handle_message(Message, Buf),
     {noreply, State#state{buffer=NewBuf}};
 handle_info(_Info, State) ->
@@ -76,35 +75,65 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-schedule_window() ->
-    erlang:send_after(?TDMA_WINDOW, self(), window).
+schedule_window(Window) ->
+    erlang:send_after(?TDMA_WINDOW, self(), Window).
 
 send_buffer([], Acc) ->
     lists:reverse(Acc);
-send_buffer([<<_:8,1:1,_/bitstring>>=Ack|Rest], Acc) ->
+send_buffer([<<_:8,1:1,0:23>>=Ack|Rest], Acc) ->
+    error_logger:info_msg("Sending message: ~p", [Ack]),
     pigeon_rfm70:send(Ack),
     send_buffer(Rest, Acc);
-send_buffer([<<Head:9,Retry:7,Tail/bitstring>>=NoAck|Rest], Acc) ->
-    pigeon_rfm70:send(NoAck),
-    case Retry+1 of
+send_buffer([<<Head:9,Retry:7,Tail/bitstring>>=Packet|Rest], Acc) ->
+    error_logger:info_msg("Sending message: ~p", [Packet]),
+    case Retry of
         Greater when Greater > ?MAX_RETRIES ->
             error_logger:error_msg("Maximum retries reached for packet ~p",
-                                   [NoAck]),
+                                   [Packet]),
             send_buffer(Rest, Acc);
-        Lower ->
-            NextRetry = <<Head:9,Lower:7,Tail/bitstring>>,
+        _ ->
+            pigeon_rfm70:send(Packet),
+            NextRetry = <<Head:9,(Retry+1):7,Tail/bitstring>>,
             send_buffer(Rest, [NextRetry|Acc])
     end.
 
 handle_message(<<Id:8,0:1,Retry:7,Len:8,Pos:8,Data/binary>>=NoAck, Buf) ->
-    %%
-    Buf;
+    %% @todo handle message actually
+    add_ack_to_packet(Buf, Id, []);
 handle_message(<<Id:8,1:1,Rest/bitstring>>=Ack, Buf) ->
-    remove_ack(Buf, Id, []).
+    %% @todo handle message actually
+    remove_retry(Buf, Id, []);
+handle_message(_Other, Buf) ->
+    Buf.
 
-remove_ack([], _Id, Acc) ->
+add_packet_to_ack([], Id, Data, Acc) ->
+    lists:reverse([packet(Id, Data, noack)|Acc]);
+add_packet_to_ack([<<Id:8,1:1,0:23>>|Rest], Id, Data, Acc) ->
+    lists:reverse(Acc) ++ [packet(Id, Data, ack)|Rest];
+add_packet_to_ack([Other|Rest], Id, Data, Acc) ->
+    add_packet_to_ack(Rest, Id, Data, [Other|Acc]).
+
+add_ack_to_packet([], Id, Acc) ->
+    lists:reverse([ack(Id)|Acc]);
+add_ack_to_packet([<<Id:8,0:1,Tail/bitstring>>|Rest], Id, Acc) ->
+    lists:reverse(Acc) ++ [<<Id:8,1:1,Tail/bitstring>>|Rest];
+add_ack_to_packet([Other|Rest], Id, Acc) ->
+    add_ack_to_packet(Rest, Id, [Other|Acc]).
+
+remove_retry([], _Id, Acc) ->
     lists:reverse(Acc);
-remove_ack([<<Id:8,1:1,_/bitstring>>|Rest], Id, Acc) ->
+remove_retry([<<Id:8,_/bitstring>>|Rest], Id, Acc) ->
     lists:reverse(Acc) ++ Rest;
-remove_ack([Packet|Rest], Id, Acc) ->
-    remove_ack(Rest, Id, [Packet|Acc]).
+remove_retry([Packet|Rest], Id, Acc) ->
+    remove_retry(Rest, Id, [Packet|Acc]).
+
+ack(Id) ->
+    <<Id:8,1:1,0:7,0:8,0:8>>.
+
+packet(Id, Data, Ack) ->
+    Length = byte_size(Data),
+    AckBit = case Ack of
+        ack -> 1;
+        _   -> 0
+    end,
+    <<Id:8,AckBit:1,1:7,Length:8,0:8,Data/binary>>.
