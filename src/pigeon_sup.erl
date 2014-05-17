@@ -25,6 +25,9 @@ start_link() ->
 
 init([]) ->
     {ok, { {one_for_one, 5, 10}, [
+                {pigeon_rfid,
+                 {pigeon_rfid, start_link, []}, permanent, 5000, worker,
+                 [pigeon_rfid]},
                 {pigeon_rfm70,
                  {pigeon_rfm70, start_link, []}, permanent, 5000, worker,
                  [pigeon_rfm70]},

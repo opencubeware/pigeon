@@ -44,6 +44,7 @@ delete_callback(Callback) when is_function(Callback, 1) ->
 %%% gen_server callbacks
 %%%===================================================================
 init([]) ->
+    process_flag(priority, high),
     init_pins(),
     init_bank0(),
     init_bank1(),

@@ -1,0 +1,1 @@
+-define(MSG_NEW_RFID, 16#00).

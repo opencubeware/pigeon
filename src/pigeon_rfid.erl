@@ -1,11 +1,30 @@
 -module(pigeon_rfid).
 
+-behaviour(gen_server).
+
 %% API
--export([verify/1]).
+-export([start_link/0,
+         new_rfid/2,
+         verify/1]).
+
+%% gen_server callbacks
+-export([init/1,
+         handle_call/3,
+         handle_cast/2,
+         handle_info/2,
+         terminate/2,
+         code_change/3]).
+
+-record(state, {}).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+new_rfid(From, Rfid) ->
+    gen_server:cast(?MODULE, {new_rfid, From, Rfid}).
 
 %%% Check whether an Unique RFID card number is correct.
 %%% The memory map is as follows:
@@ -34,8 +53,41 @@ verify(_NoHeader) ->
     false.
 
 %%%===================================================================
+%%% gen_server callbacks
+%%%===================================================================
+init([]) ->
+    {ok, #state{}}.
+
+handle_call(_Request, _From, State) ->
+    Reply = ok,
+    {reply, Reply, State}.
+
+handle_cast({new_rfid, From, Rfid}, State) ->
+    handle_new_rfid(From, Rfid),
+    {noreply, State};
+handle_cast(_Msg, State) ->
+    {noreply, State}.
+
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
+    ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+%%%===================================================================
 %%% Internal functions
 %%%===================================================================
+handle_new_rfid(_From, Rfid) ->
+    case verify(Rfid) of
+        false ->
+            error_logger:error_msg("RFID number ~p received but it doesn't "
+                                   "seem to be a valid one", [Rfid]);
+        true ->
+            error_logger:info_msg("RFID ~p received", [Rfid])
+    end.
 data_bits(Binary) ->
     data_bits(Binary, [], [<<>>,<<>>,<<>>,<<>>]).
 

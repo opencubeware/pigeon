@@ -36,6 +36,7 @@ send(Id, Data) when byte_size(Data) =< 28 ->
 %%%===================================================================
 init([]) ->
     process_flag(trap_exit, true),
+    process_flag(priority, high),
     pigeon_rfm70:add_callback(?RECEIVE_MESSAGE),
     schedule_window(send_sync),
     {ok, #state{buffer = []}}.
@@ -97,11 +98,11 @@ send_buffer([<<Head:9,Retry:7,Tail/bitstring>>=Packet|Rest], Acc) ->
             send_buffer(Rest, [NextRetry|Acc])
     end.
 
-handle_message(<<Id:8,0:1,Retry:7,Len:8,Pos:8,Data/binary>>=NoAck, Buf) ->
-    %% @todo handle message actually
+handle_message(<<Id:8,0:1,_Retry:7,_Len:8,_Pos:8,_Data/binary>>=NoAck, Buf) ->
+    pigeon_message:handle(NoAck),
     add_ack_to_packet(Buf, Id, []);
-handle_message(<<Id:8,1:1,Rest/bitstring>>=Ack, Buf) ->
-    %% @todo handle message actually
+handle_message(<<Id:8,1:1,_Rest/bitstring>>=Ack, Buf) ->
+    pigeon_message:handle(Ack),
     remove_retry(Buf, Id, []);
 handle_message(_Other, Buf) ->
     Buf.
