@@ -1,5 +1,5 @@
 .PHONY: all deps test unit shell
-EVAL="application:start(lager), application:start(folsom), application:start(dnssd), application:start(pigeon)"
+EVAL="application:start(lager), application:start(folsom), application:start(pigeon)"
 
 all: rel
 
@@ -27,4 +27,4 @@ unit:
 	./rebar eunit skip_deps=true
 
 shell:
-	erl -pa ebin -pa deps/*/ebin -smp enable +A 2 -config etc/pigeon.config -setcookie ocw -eval $(EVAL)
+	erl -pa ebin -pa deps/*/ebin -smp enable +A 2  -setcookie ocw -eval $(EVAL)

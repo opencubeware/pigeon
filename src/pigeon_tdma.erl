@@ -60,7 +60,6 @@ handle_info(flush_buffer, #state{buffer=Buf}=State) ->
     schedule_window(send_sync),
     {noreply, State#state{buffer=NewBuf}};
 handle_info({message, Message}, #state{buffer=Buf}=State) ->
-    error_logger:info_msg("Received message: ~p", [Message]),
     NewBuf = handle_message(Message, Buf),
     {noreply, State#state{buffer=NewBuf}};
 handle_info(_Info, State) ->
@@ -81,31 +80,42 @@ schedule_window(Window) ->
 
 send_buffer([], Acc) ->
     lists:reverse(Acc);
-send_buffer([<<_:8,1:1,0:23>>=Ack|Rest], Acc) ->
-    error_logger:info_msg("Sending message: ~p", [Ack]),
+send_buffer([<<To:8,1:1,0:23>>=Ack|Rest], Acc) ->
+    folsom_metrics:notify({pigeon_traffic, {ack, out, To}}),
     pigeon_rfm70:send(Ack),
     send_buffer(Rest, Acc);
-send_buffer([<<Head:9,Retry:7,Tail/bitstring>>=Packet|Rest], Acc) ->
-    error_logger:info_msg("Sending message: ~p", [Packet]),
+send_buffer([<<To:8,_Ack:1,Retry:7,Tail/bitstring>>=Packet|Rest], Acc) ->
     case Retry of
         Greater when Greater > ?MAX_RETRIES ->
-            error_logger:error_msg("Maximum retries reached for packet ~p",
-                                   [Packet]),
+            folsom_metrics:notify({pigeon_traffic, {max_retries_exceeded,To}}),
             send_buffer(Rest, Acc);
         _ ->
+            folsom_metrics:notify({pigeon_traffic, {packet, out, To, Packet}}),
+            folsom_metrics:notify({pigeon_tx, 1}),
             pigeon_rfm70:send(Packet),
-            NextRetry = <<Head:9,(Retry+1):7,Tail/bitstring>>,
+            NextRetry = <<To:8,0:1,(Retry+1):7,Tail/bitstring>>,
             send_buffer(Rest, [NextRetry|Acc])
     end.
 
-handle_message(<<Id:8,0:1,_Retry:7,_Len:8,_Pos:8,_Data/binary>>=NoAck, Buf) ->
+handle_message(<<Id:8,0:1,Retry:7,_Len:8,_Pos:8,_Data/binary>>=NoAck, Buf) ->
+    notify_rx_packet(Id, Retry, NoAck),
     pigeon_message:handle(NoAck),
     add_ack_to_packet(Buf, Id, []);
-handle_message(<<Id:8,1:1,_Rest/bitstring>>=Ack, Buf) ->
+handle_message(<<Id:8,1:1,0:23>>, Buf) ->
+    folsom_metrics:notify({pigeon_traffic, {ack, in, Id}}),
+    remove_retry(Buf, Id, []);
+handle_message(<<Id:8,1:1,Retry:7,_Rest/bitstring>>=Ack, Buf) ->
+    notify_rx_packet(Id, Retry, Ack),
     pigeon_message:handle(Ack),
     remove_retry(Buf, Id, []);
 handle_message(_Other, Buf) ->
     Buf.
+
+notify_rx_packet(From, Retry, Packet) ->
+    folsom_metrics:notify({pigeon_traffic, {packet, in, From, Packet}}),
+    folsom_metrics:notify({pigeon_rx, 1}),
+    folsom_metrics:notify({pigeon_retry, Retry}),
+    folsom_metrics:notify({pigeon_devices, From}).
 
 add_packet_to_ack([], Id, Data, Acc) ->
     lists:reverse([packet(Id, Data, noack)|Acc]);
