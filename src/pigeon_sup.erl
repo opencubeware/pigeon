@@ -26,8 +26,6 @@ start_link() ->
 init([]) ->
     {ok, { {rest_for_one, 5, 10}, [
                 ?CHILD(pigeon_message_sup, supervisor),
-                ?CHILD(pigeon_rfm70, worker),
-                ?CHILD(pigeon_metrics, worker),
-                ?CHILD(pigeon_tdma, worker)
+                ?CHILD(pigeon_radio_sup, supervisor)
                 ]} }.
 

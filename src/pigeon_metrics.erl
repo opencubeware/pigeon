@@ -5,6 +5,7 @@
 %% API
 -export([start_link/0,
          get_metrics/0,
+         reset/0,
          tx/1,
          rx/1,
          retries/0,
@@ -31,6 +32,9 @@ start_link() ->
 get_metrics() ->
     gen_server:call(?MODULE, get_metrics).
 
+reset() ->
+    gen_server:call(?MODULE, reset).
+
 rx(Frame) ->
     folsom_metrics:notify({pigeon_rx, 1}),
     folsom_metrics:notify({pigeon_rx_bytes, byte_size(Frame)}),
@@ -50,6 +54,7 @@ devices() ->
 %%% gen_server callbacks
 %%%===================================================================
 init([]) ->
+    process_flag(trap_exit, true),
     folsom_metrics:new_history(pigeon_traffic, 10*1024),
     folsom_metrics:new_spiral(pigeon_tx),
     folsom_metrics:new_spiral(pigeon_rx),
@@ -68,6 +73,8 @@ init([]) ->
 handle_call(get_metrics, _From, State) ->
     Reply = handle_get_metrics(),
     {reply, Reply, State};
+handle_call(reset, _From, State) ->
+    {stop, normal, ok, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
@@ -79,6 +86,9 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
+    Metrics = [pigeon_traffic, pigeon_tx, pigeon_rx,
+               pigeon_tx_bytes, pigeon_rx_bytes, pigeon_ifg],
+    [folsom_metrics:delete_metric(Metric) || Metric <- Metrics],
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
