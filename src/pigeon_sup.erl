@@ -24,15 +24,10 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
-    {ok, { {one_for_one, 5, 10}, [
-                {pigeon_rfid,
-                 {pigeon_rfid, start_link, []}, permanent, 5000, worker,
-                 [pigeon_rfid]},
-                {pigeon_rfm70,
-                 {pigeon_rfm70, start_link, []}, permanent, 5000, worker,
-                 [pigeon_rfm70]},
-                {pigeon_tdma,
-                 {pigeon_tdma, start_link, []}, permanent, 5000, worker,
-                 [pigeon_tdma]} 
+    {ok, { {rest_for_one, 5, 10}, [
+                ?CHILD(pigeon_message_sup, supervisor),
+                ?CHILD(pigeon_rfm70, worker),
+                ?CHILD(pigeon_metrics, worker),
+                ?CHILD(pigeon_tdma, worker)
                 ]} }.
 

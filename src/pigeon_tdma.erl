@@ -42,7 +42,7 @@ init([]) ->
     {ok, #state{buffer = []}}.
 
 handle_call({send, Id, Data}, _From, #state{buffer=Buffer}=State) ->
-    NewBuffer = add_packet_to_ack(Buffer, Id, Data, []),
+    NewBuffer = add_frame_to_ack(Buffer, Id, Data, []),
     {reply, ok, State#state{buffer=NewBuffer}};
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -61,6 +61,7 @@ handle_info(flush_buffer, #state{buffer=Buf}=State) ->
     {noreply, State#state{buffer=NewBuf}};
 handle_info({message, Message}, #state{buffer=Buf}=State) ->
     NewBuf = handle_message(Message, Buf),
+    pigeon_metrics:rx(Message),
     {noreply, State#state{buffer=NewBuf}};
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -80,68 +81,63 @@ schedule_window(Window) ->
 
 send_buffer([], Acc) ->
     lists:reverse(Acc);
-send_buffer([<<To:8,1:1,0:23>>=Ack|Rest], Acc) ->
-    folsom_metrics:notify({pigeon_traffic, {ack, out, To}}),
+send_buffer([<<_To:8,1:1,0:23>>=Ack|Rest], Acc) ->
     pigeon_rfm70:send(Ack),
+    pigeon_metrics:tx(Ack),
     send_buffer(Rest, Acc);
-send_buffer([<<To:8,_Ack:1,Retry:7,Tail/bitstring>>=Packet|Rest], Acc) ->
+send_buffer([<<To:8,_Ack:1,Retry:7,Tail/bitstring>>=Frame|Rest], Acc) ->
     case Retry of
         Greater when Greater > ?MAX_RETRIES ->
-            folsom_metrics:notify({pigeon_traffic, {max_retries_exceeded,To}}),
             send_buffer(Rest, Acc);
         _ ->
-            folsom_metrics:notify({pigeon_traffic, {packet, out, To, Packet}}),
-            folsom_metrics:notify({pigeon_tx, 1}),
-            pigeon_rfm70:send(Packet),
+            pigeon_rfm70:send(Frame),
+            pigeon_metrics:tx(Frame),
             NextRetry = <<To:8,0:1,(Retry+1):7,Tail/bitstring>>,
             send_buffer(Rest, [NextRetry|Acc])
     end.
 
-handle_message(<<Id:8,0:1,Retry:7,_Len:8,_Pos:8,_Data/binary>>=NoAck, Buf) ->
-    notify_rx_packet(Id, Retry, NoAck),
+handle_message(<<Id:8,0:1,_Retry:7,_Len:8,_Pos:8,_Data/binary>>=NoAck, Buf) ->
     pigeon_message:handle(NoAck),
-    add_ack_to_packet(Buf, Id, []);
+    add_ack_to_frame(Buf, Id, []);
 handle_message(<<Id:8,1:1,0:23>>, Buf) ->
-    folsom_metrics:notify({pigeon_traffic, {ack, in, Id}}),
     remove_retry(Buf, Id, []);
-handle_message(<<Id:8,1:1,Retry:7,_Rest/bitstring>>=Ack, Buf) ->
-    notify_rx_packet(Id, Retry, Ack),
+handle_message(<<Id:8,1:1,_Retry:7,_Rest/bitstring>>=Ack, Buf) ->
     pigeon_message:handle(Ack),
-    remove_retry(Buf, Id, []);
+    Buf1 = remove_retry(Buf, Id, []),
+    add_ack_to_frame(Buf1, Id, []);
 handle_message(_Other, Buf) ->
     Buf.
 
-notify_rx_packet(From, Retry, Packet) ->
-    folsom_metrics:notify({pigeon_traffic, {packet, in, From, Packet}}),
-    folsom_metrics:notify({pigeon_rx, 1}),
-    folsom_metrics:notify({pigeon_retry, Retry}),
-    folsom_metrics:notify({pigeon_devices, From}).
+%% add frame to currently existing ack frame in the buffer
+%% if doesn't exist - append one at the end
+add_frame_to_ack([], Id, Data, Acc) ->
+    lists:reverse([frame(Id, Data, noack)|Acc]);
+add_frame_to_ack([<<Id:8,1:1,0:23>>|Rest], Id, Data, Acc) ->
+    lists:reverse(Acc) ++ [frame(Id, Data, ack)|Rest];
+add_frame_to_ack([Other|Rest], Id, Data, Acc) ->
+    add_frame_to_ack(Rest, Id, Data, [Other|Acc]).
 
-add_packet_to_ack([], Id, Data, Acc) ->
-    lists:reverse([packet(Id, Data, noack)|Acc]);
-add_packet_to_ack([<<Id:8,1:1,0:23>>|Rest], Id, Data, Acc) ->
-    lists:reverse(Acc) ++ [packet(Id, Data, ack)|Rest];
-add_packet_to_ack([Other|Rest], Id, Data, Acc) ->
-    add_packet_to_ack(Rest, Id, Data, [Other|Acc]).
-
-add_ack_to_packet([], Id, Acc) ->
+%% add ack to currently existing frame in the buffer
+%% if doesn't exist - append one at the end
+add_ack_to_frame([], Id, Acc) ->
     lists:reverse([ack(Id)|Acc]);
-add_ack_to_packet([<<Id:8,0:1,Tail/bitstring>>|Rest], Id, Acc) ->
+add_ack_to_frame([<<Id:8,0:1,Tail/bitstring>>|Rest], Id, Acc) ->
     lists:reverse(Acc) ++ [<<Id:8,1:1,Tail/bitstring>>|Rest];
-add_ack_to_packet([Other|Rest], Id, Acc) ->
-    add_ack_to_packet(Rest, Id, [Other|Acc]).
+add_ack_to_frame([Other|Rest], Id, Acc) ->
+    add_ack_to_frame(Rest, Id, [Other|Acc]).
 
+%% ack arrived - remove retry
 remove_retry([], _Id, Acc) ->
     lists:reverse(Acc);
 remove_retry([<<Id:8,_/bitstring>>|Rest], Id, Acc) ->
     lists:reverse(Acc) ++ Rest;
-remove_retry([Packet|Rest], Id, Acc) ->
-    remove_retry(Rest, Id, [Packet|Acc]).
+remove_retry([Frame|Rest], Id, Acc) ->
+    remove_retry(Rest, Id, [Frame|Acc]).
 
 ack(Id) ->
     <<Id:8,1:1,0:7,0:8,0:8>>.
 
-packet(Id, Data, Ack) ->
+frame(Id, Data, Ack) ->
     Length = byte_size(Data),
     AckBit = case Ack of
         ack -> 1;

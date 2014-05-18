@@ -8,7 +8,7 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-handle(<<From:8, _:1, Retry:7, _Len:8, _:8, Data/binary>>) ->
+handle(<<From:8,_:1,_Retry:7,_Len:8,_:8,Data/binary>>) ->
     handle(Data, From).
 
 %%%===================================================================
@@ -16,5 +16,7 @@ handle(<<From:8, _:1, Retry:7, _Len:8, _:8, Data/binary>>) ->
 %%%===================================================================
 handle(<<?MSG_NEW_RFID, Rfid/binary>>, From) ->
     pigeon_rfid:new_rfid(From, Rfid);
+handle(<<?MSG_PING, _/binary>>, From) ->
+    pigeon_control:ping(From);
 handle(Other, From) ->
     error_logger:error_msg("Unable to handle message ~p from ~p", [Other,From]).

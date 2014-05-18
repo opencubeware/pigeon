@@ -65,7 +65,7 @@ handle_call({delete_callback, Callback}, _From,
     NewCallbacks = lists:delete(Callback, Callbacks),
     {reply, ok, State#state{callbacks=NewCallbacks}};
 handle_call({send, Data}, _From, State) ->
-    Reply = send_packet(Data),
+    Reply = send_frame(Data),
     {reply, Reply, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -75,7 +75,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(interrupt, State) ->
-    maybe_receive_packet(State),
+    maybe_receive_frame(State),
     {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -89,17 +89,17 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-maybe_receive_packet(#state{callbacks=Callbacks}) ->
-    %% receive packet iff it's a rx interrupt
+maybe_receive_frame(#state{callbacks=Callbacks}) ->
+    %% receive frame iff it's a rx interrupt
     case register_read(?RFM70_REG_STATUS) of
         <<_:1,1:1,_/bitstring>>=Status ->
             <<StatusByte>> = Status,
-            receive_packet(Callbacks, StatusByte);
+            receive_frame(Callbacks, StatusByte);
         _ ->
             ok
     end.
 
-receive_packet(Callbacks, Status) ->
+receive_frame(Callbacks, Status) ->
     <<Length>> = register_read(?RFM70_CMD_R_RX_PL_WID),
     Payload = rw(<<?RFM70_CMD_R_RX_PAYLOAD>>, 8*Length, 8),
     rw(<<?RFM70_CMD_FLUSH_RX, 0>>),
@@ -107,7 +107,7 @@ receive_packet(Callbacks, Status) ->
     [Callback(Payload) || Callback <- Callbacks],
     Payload.
 
-send_packet(Data) ->
+send_frame(Data) ->
     switch_tx(),
     Cmd = <<?RFM70_CMD_W_TX_PAYLOAD_NOACK, Data/binary>>,
     rw(Cmd),
