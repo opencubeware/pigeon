@@ -4,6 +4,7 @@
 
 %% API
 -export([start_link/0,
+         get_metrics/0,
          tx/1,
          rx/1,
          retries/0,
@@ -26,6 +27,9 @@
 %%%===================================================================
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+get_metrics() ->
+    gen_server:call(?MODULE, get_metrics).
 
 rx(Frame) ->
     folsom_metrics:notify({pigeon_rx, 1}),
@@ -51,14 +55,19 @@ init([]) ->
     folsom_metrics:new_spiral(pigeon_rx),
     folsom_metrics:new_spiral(pigeon_tx_bytes),
     folsom_metrics:new_spiral(pigeon_rx_bytes),
+    folsom_metrics:new_histogram(pigeon_ifg),
     ets:new(pigeon_retry, [public, named_table, {read_concurrency, true}]),
     ets:new(pigeon_device, [public, named_table, {read_concurrency, true}]),
     lists:foreach(fun(N) ->
                 ets:insert(pigeon_retry, {N, 0}),
                 ets:insert(pigeon_device, {N, 0})
         end, lists:seq(1, ?WIDTH)),
+    ets:new(pigeon_last, [public, named_table, {read_concurrency, true}]),
     {ok, #state{}}.
 
+handle_call(get_metrics, _From, State) ->
+    Reply = handle_get_metrics(),
+    {reply, Reply, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
@@ -78,6 +87,17 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+handle_get_metrics() ->
+    Histogram = folsom_metrics:get_histogram_statistics(pigeon_ifg),
+    {histogram, Ifg} = lists:keyfind(histogram, 1, Histogram),
+    [{tx,       folsom_metrics:get_metric_value(pigeon_tx)},
+     {rx,       folsom_metrics:get_metric_value(pigeon_rx)},
+     {tx_bytes, folsom_metrics:get_metric_value(pigeon_tx_bytes)},
+     {rx_bytes, folsom_metrics:get_metric_value(pigeon_rx_bytes)},
+     {ifg,      Ifg},
+     {retries,  retries()},
+     {devices,  devices()}].
+
 handle_rx(<<Id:8,1:1,0:23>>) ->
     folsom_metrics:notify({pigeon_traffic, {ack, in, Id}});
 handle_rx(<<Id:8,1:1,Retry:7,_Rest/bitstring>>=Ack) ->
@@ -92,9 +112,11 @@ handle_rx(<<Id:8,0:1,Retry:7,_Rest/bitstring>>=NoAck) ->
 handle_tx(<<Id:8,1:1,0:23>>) ->
     folsom_metrics:notify({pigeon_traffic, {ack, out, Id}});
 handle_tx(<<Id:8,1:1,_Rest/bitstring>>=Ack) ->
-    folsom_metrics:notify({pigeon_traffic, {ack_frame, out, Id, Ack}});
+    folsom_metrics:notify({pigeon_traffic, {ack_frame, out, Id, Ack}}),
+    calculate_ifg(Id);
 handle_tx(<<Id:8,0:1,_Rest/bitstring>>=NoAck) ->
-    folsom_metrics:notify({pigeon_traffic, {frame, out, Id, NoAck}}).
+    folsom_metrics:notify({pigeon_traffic, {frame, out, Id, NoAck}}),
+    calculate_ifg(Id).
 
 trim_zeros_sort(List) ->
     Filtered = lists:filter(fun
@@ -102,3 +124,13 @@ trim_zeros_sort(List) ->
             (_)      -> true
         end, List),
     lists:keysort(1, Filtered).
+
+calculate_ifg(From) ->
+    Epoch = folsom_utils:now_epoch_micro(),
+    case ets:lookup(pigeon_last, From) of
+        [] -> 
+            ok;
+        [{From, Last}] ->
+            folsom_metrics:notify({pigeon_ifg, (Epoch-Last) div 1000})
+    end,
+    ets:insert(pigeon_last, {From, Epoch}).
