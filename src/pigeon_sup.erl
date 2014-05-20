@@ -10,7 +10,8 @@
 -export([init/1]).
 
 %% Helper macro for declaring children of supervisor
--define(CHILD(I, Type), {I, {I, start_link, []}, permanent, 5000, Type, [I]}).
+-define(CHILD(I, Args, Type),
+        {I, {I, start_link, Args}, permanent, 5000, Type, [I]}).
 
 %% ===================================================================
 %% API functions
@@ -24,8 +25,10 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
-    {ok, { {rest_for_one, 5, 10}, [
-                ?CHILD(pigeon_message_sup, supervisor),
-                ?CHILD(pigeon_radio_sup, supervisor)
+    {ok, { {one_for_one, 5, 10}, [
+                ?CHILD(ocw_dnssd,          [pigeon], worker),
+                ?CHILD(pigeon_metrics,     [],       worker),
+                ?CHILD(pigeon_message_sup, [],       supervisor),
+                ?CHILD(pigeon_radio_sup,   [],       supervisor)
                 ]} }.
 

@@ -1,5 +1,6 @@
 .PHONY: all deps test unit shell
-EVAL="application:start(lager), application:start(folsom), application:start(pigeon)"
+EVAL="application:start(lager), application:start(folsom),\
+	 application:start(dnssd), application:start(pigeon)"
 
 all: rel
 

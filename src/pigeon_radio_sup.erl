@@ -20,9 +20,8 @@ start_link() ->
 %%% Supervisor callbacks
 %%%===================================================================
 init([]) ->
-    {ok, { {one_for_all, 5, 10}, [
+    {ok, { {rest_for_one, 5, 10}, [
                 ?CHILD(pigeon_rfm70, worker),
-                ?CHILD(pigeon_metrics, worker),
                 ?CHILD(pigeon_tdma, worker)
                 ]} }.
 

@@ -17,7 +17,7 @@
 -record(state, {buffer}).
 
 %% length of a tdma window in miliseconds
--define(TDMA_WINDOW, 50).
+-define(TDMA_WINDOW, 40).
 -define(MAX_RETRIES, 100).
 -define(SYNC, <<250, "syn">>).
 -define(RECEIVE_MESSAGE, fun(Msg) -> ?MODULE ! {message, Msg} end).
@@ -53,6 +53,7 @@ handle_cast(_Msg, State) ->
 
 handle_info(send_sync, State) ->
     pigeon_rfm70:send(?SYNC),
+    pigeon_metrics:sync(),
     schedule_window(flush_buffer),
     {noreply, State};
 handle_info(flush_buffer, #state{buffer=Buf}=State) ->

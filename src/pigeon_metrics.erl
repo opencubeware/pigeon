@@ -8,6 +8,7 @@
          reset/0,
          tx/1,
          rx/1,
+         sync/0,
          retries/0,
          devices/0]).
 
@@ -35,15 +36,22 @@ get_metrics() ->
 reset() ->
     gen_server:call(?MODULE, reset).
 
-rx(Frame) ->
+sync() ->
+    folsom_metrics:notify({pigeon_traffic, {sync, out}}).
+
+rx(<<Id:8,_/bitstring>>=Frame) when Id =< ?WIDTH ->
     folsom_metrics:notify({pigeon_rx, 1}),
     folsom_metrics:notify({pigeon_rx_bytes, byte_size(Frame)}),
-    handle_rx(Frame).
+    handle_rx(Frame);
+rx(_Other) ->
+    ok.
 
-tx(Frame) ->
+tx(<<Id:8,_/bitstring>>=Frame) when Id =< ?WIDTH ->
     folsom_metrics:notify({pigeon_tx, 1}),
     folsom_metrics:notify({pigeon_tx_bytes, byte_size(Frame)}),
-    handle_tx(Frame).
+    handle_tx(Frame);
+tx(_Other) ->
+    ok.
 
 retries() ->
     trim_zeros_sort(ets:tab2list(pigeon_retry)).
