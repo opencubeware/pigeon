@@ -28,4 +28,4 @@ unit:
 	./rebar eunit skip_deps=true
 
 shell:
-	erl -pa ebin -pa deps/*/ebin -smp enable +A 2  -setcookie ocw -eval $(EVAL)
+	erl -pa ebin -pa deps/*/ebin -smp enable +A 2  -setcookie ocw -eval $(EVAL) -hidden

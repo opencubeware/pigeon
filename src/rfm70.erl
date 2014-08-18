@@ -1,4 +1,4 @@
--module(pigeon_rfm70).
+-module(rfm70).
 
 -behaviour(gen_server).
 
@@ -91,25 +91,25 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 maybe_receive_frame(#state{callbacks=Callbacks}) ->
     %% receive frame iff it's a rx interrupt
-    case register_read(?RFM70_REG_STATUS) of
-        <<_:1,1:1,_/bitstring>>=Status ->
-            <<StatusByte>> = Status,
-            receive_frame(Callbacks, StatusByte);
+    [Status] = register_read(?RFM70_REG_STATUS),
+    case Status band 64 of
+        64 ->
+            receive_frame(Callbacks, Status);
         _ ->
             ok
     end.
 
 receive_frame(Callbacks, Status) ->
-    <<Length>> = register_read(?RFM70_CMD_R_RX_PL_WID),
-    Payload = rw(<<?RFM70_CMD_R_RX_PAYLOAD>>, 8*Length, 8),
-    rw(<<?RFM70_CMD_FLUSH_RX, 0>>),
-    register_write(?RFM70_REG_STATUS, <<(Status bor 64)>>),
+    [Length] = register_read(?RFM70_CMD_R_RX_PL_WID),
+    Payload = rw([?RFM70_CMD_R_RX_PAYLOAD], Length, 1),
+    rw([?RFM70_CMD_FLUSH_RX, 0]),
+    register_write(?RFM70_REG_STATUS, [Status bor 64]),
     [Callback(Payload) || Callback <- Callbacks],
     Payload.
 
 send_frame(Data) ->
     switch_tx(),
-    Cmd = <<?RFM70_CMD_W_TX_PAYLOAD_NOACK, Data/binary>>,
+    Cmd = [?RFM70_CMD_W_TX_PAYLOAD_NOACK] ++ Data,
     rw(Cmd),
     Reply = receive
         interrupt -> ok
@@ -117,28 +117,29 @@ send_frame(Data) ->
         {error, timeout}
     end,
     %% clear tx interrupt
-    <<Status>> = register_read(?RFM70_REG_STATUS),
-    register_write(?RFM70_REG_STATUS, <<(Status bor 32)>>),
+    [Status] = register_read(?RFM70_REG_STATUS),
+    register_write(?RFM70_REG_STATUS, [(Status bor 32)]),
     switch_rx(),
     Reply.
 
 switch_rx() ->
-    rw(<<?RFM70_CMD_FLUSH_RX, 0>>),
+    rw([?RFM70_CMD_FLUSH_RX, 0]),
     pigeon_gpio:write(?PIN_CE, low),
-    <<Config>> = register_read(?RFM70_REG_CONFIG),
-    register_write(?RFM70_REG_CONFIG, <<(Config bor 16#01)>>),
+    [Config] = register_read(?RFM70_REG_CONFIG),
+    register_write(?RFM70_REG_CONFIG, [(Config bor 16#01)]),
     pigeon_gpio:write(?PIN_CE, high).
 
 switch_tx() ->
-    rw(<<?RFM70_CMD_FLUSH_TX, 0>>),
+    rw([?RFM70_CMD_FLUSH_TX, 0]),
     pigeon_gpio:write(?PIN_CE, low),
-    <<Config>> = register_read(?RFM70_REG_CONFIG),
-    register_write(?RFM70_REG_CONFIG, <<(Config band 16#FE)>>),
+    [Config] = register_read(?RFM70_REG_CONFIG),
+    register_write(?RFM70_REG_CONFIG, [(Config band 16#FE)]),
     pigeon_gpio:write(?PIN_CE, high).
 
 init_pins() ->
     pigeon_gpio:mode(?PIN_CE, output),
     pigeon_gpio:mode(?PIN_CSN, output),
+    pigeon_gpio:mode(?PIN_IRQ, input),
     pigeon_gpio:interrupt(?PIN_IRQ, falling),
     {ok, _} = pigeon_spi:init(?SPI_CH, ?SPI_FREQ).
 
@@ -150,8 +151,8 @@ init_bank0() ->
     [register_write(Register, Address) || {Register,Address} <- addresses()],
     %% enable extra features
     case register_read(?RFM70_REG_FEATURE) of
-        <<0>> ->
-            rw(<<?RFM70_CMD_ACTIVATE:8, 16#73:8>>);
+        [0] ->
+            rw([?RFM70_CMD_ACTIVATE, 16#73]);
         _ ->
             ok
     end,
@@ -164,33 +165,35 @@ init_bank1() ->
     [register_write(Register, Value) || {Register,Value} <- bank1()].
 
 bank(Bank) ->
-    case register_read(?RFM70_REG_STATUS) of
-        <<Bank:1,_/bitstring>> ->
+    [Status|_] = register_read(?RFM70_REG_STATUS),
+    case (Status bsr 7) of 
+        Bank ->
             ok;
         _    ->
-            rw(<<?RFM70_CMD_ACTIVATE, 16#53>>),
+            rw([?RFM70_CMD_ACTIVATE, 16#53]),
             ok
     end.
 
 register_write(Register, Value) ->
     Cmd = ?RFM70_CMD_WRITE_REG bor Register,
-    rw(<<Cmd, Value/binary>>).
+    rw([Cmd] ++ Value).
 
 register_read(Register) ->
     Cmd = ?RFM70_CMD_READ_REG bor Register,
-    rw(<<Cmd>>, 8, 8).
+    rw([Cmd], 1, 1).
 
 rw(Data) ->
     pigeon_gpio:write(?PIN_CSN, low),
-    {ok, Value} = pigeon_spi:rw(?SPI_CH, Data),
+    Value = [pigeon_spi:rw_byte(?SPI_CH, Byte) || Byte <- Data],
     pigeon_gpio:write(?PIN_CSN, high),
     Value.
 
 rw(Data, TPadding, RPadding) ->
+    Data1 = Data ++ lists:duplicate(TPadding, 0),
     pigeon_gpio:write(?PIN_CSN, low),
-    {ok, Value} = pigeon_spi:rw(?SPI_CH, Data, TPadding, RPadding),
+    Unpadded = [pigeon_spi:rw_byte(?SPI_CH, Byte) || Byte <- Data1],
     pigeon_gpio:write(?PIN_CSN, high),
-    Value.
+    lists:nthtail(RPadding, Unpadded).
 
 %%%===================================================================
 %%% Initialization data
@@ -229,12 +232,12 @@ addresses() ->
 
 %% "it's a kind of magic"
 bank1() ->
-    [{16#00, <<16#40,16#4B,16#01,16#E2>>},
-     {16#01, <<16#C0,16#4B,16#00,16#00>>},
-     {16#02, <<16#D0,16#FC,16#8C,16#02>>},
-     {16#03, <<16#99,16#00,16#39,16#41>>},
-     {16#04, <<16#D9,16#9E,16#86,16#0B>>},
-     {16#05, <<16#24,16#06,16#7F,16#A6>>},
-     {16#0C, <<16#00,16#12,16#73,16#00>>},
-     {16#0D, <<16#36,16#B4,16#80,16#00>>},
-     {16#0E, <<16#41,16#20,16#08,16#04,16#81,16#20,16#CF,16#F7,16#FE,16#FF,16#FF>>}].
+    [{16#00, [16#40,16#4B,16#01,16#E2]},
+     {16#01, [16#C0,16#4B,16#00,16#00]},
+     {16#02, [16#D0,16#FC,16#8C,16#02]},
+     {16#03, [16#99,16#00,16#39,16#41]},
+     {16#04, [16#D9,16#96,16#82,16#1B]},
+     {16#05, [16#24,16#06,16#7F,16#A6]},
+     {16#0C, [16#00,16#12,16#73,16#00]},
+     {16#0D, [16#46,16#B4,16#80,16#00]},
+     {16#0E, [16#41,16#20,16#08,16#04,16#81,16#20,16#CF,16#F7,16#FE,16#FF,16#FF]}].

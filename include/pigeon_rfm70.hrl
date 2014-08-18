@@ -30,7 +30,7 @@
 -define(B0_ARD, 0).
 -define(B0_ARC, 0).
 %% register RF_CH 0x05
--define(B0_RF_CH, <<5>>).
+-define(B0_RF_CH, [5]).
 %% register RF_SETUP 0x06
 -define(B0_RF_DR, 0).
 -define(B0_RF_PWR, 3).
@@ -40,33 +40,33 @@
 -define(B0_TX_DS, 0).
 -define(B0_MAX_RT, 0).
 %% register RX_ADDR_P0 0x0A
--define(B0_RX_ADDR_P0, <<16#34,16#43,16#10,16#10,16#01>>).
+-define(B0_RX_ADDR_P0, [16#34,16#43,16#10,16#10,16#01]).
 %% register RX_ADDR_P1 0x0B
--define(B0_RX_ADDR_P1, <<16#39,16#38,16#37,16#36,16#C2>>).
+-define(B0_RX_ADDR_P1, [16#39,16#38,16#37,16#36,16#C2]).
 %% register RX_ADDR_P2 0x0C
--define(B0_RX_ADDR_P2, <<16#C3>>).
+-define(B0_RX_ADDR_P2, [16#C3]).
 %% register RX_ADDR_P3 0x0D
--define(B0_RX_ADDR_P3, <<16#C4>>).
+-define(B0_RX_ADDR_P3, [16#C4]).
 %% register RX_ADDR_P4 0x0E
--define(B0_RX_ADDR_P4, <<16#C5>>).
+-define(B0_RX_ADDR_P4, [16#C5]).
 %% register RX_ADDR_P5 0x0F
--define(B0_RX_ADDR_P5, <<16#C6>>).
+-define(B0_RX_ADDR_P5, [16#C6]).
 %% register TX_ADDR 0x10
--define(B0_TX_ADDR, <<16#34,16#43,16#10,16#10,16#01>>).
+-define(B0_TX_ADDR, [16#34,16#43,16#10,16#10,16#01]).
 %% register RX_PW_P0 0x11
--define(B0_RX_PW_P0, <<32>>).
+-define(B0_RX_PW_P0, [32]).
 %% register RX_PW_P1 0x12
--define(B0_RX_PW_P1, <<32>>).
+-define(B0_RX_PW_P1, [32]).
 %% register RX_PW_P2 0x13
--define(B0_RX_PW_P2, <<32>>).
+-define(B0_RX_PW_P2, [32]).
 %% register RX_PW_P3 0x14
--define(B0_RX_PW_P3, <<32>>).
+-define(B0_RX_PW_P3, [32]).
 %% register RX_PW_P4 0x15
--define(B0_RX_PW_P4, <<32>>).
+-define(B0_RX_PW_P4, [32]).
 %% register RX_PW_P5 0x16
--define(B0_RX_PW_P5, <<32>>).
+-define(B0_RX_PW_P5, [32]).
 %% register FIFO_STATUS 0x17
--define(B0_FIFO_STATUS, <<0>>).
+-define(B0_FIFO_STATUS, [0]).
 %% register DYNPD 0x1C
 -define(B0_DPL_P5, 1).
 -define(B0_DPL_P4, 1).
@@ -80,20 +80,20 @@
 -define(B0_EN_DYN_ACK, 1).
 
 %% BANK 0 registers
--define(B0_CONFIG, <<0:1,?B0_MASK_RX_DR:1,?B0_MASK_TX_DS:1,?B0_MASK_MAX_RT:1,
-                     ?B0_EN_CRC:1,?B0_CRCO:1,?B0_PWR_UP:1,?B0_PRIM_RX:1>>).
--define(B0_EN_AA, <<0:2,?B0_ENAA_P5:1,?B0_ENAA_P4:1,?B0_ENAA_P3:1,
-                    ?B0_ENAA_P2:1,?B0_ENAA_P1:1,?B0_ENAA_P0:1>>).
--define(B0_EN_RXADDR, <<0:2,?B0_ERX_P5:1,?B0_ERX_P4:1,?B0_ERX_P3:1,
-                        ?B0_ERX_P2:1,?B0_ERX_P1:1,?B0_ERX_P0:1>>).
--define(B0_SETUP_AW, <<?B0_AW:8>>).
--define(B0_SETUP_RETR, <<?B0_ARD:4, ?B0_ARC:4>>).
--define(B0_RF_SETUP, <<3:4,?B0_RF_DR:1,?B0_RF_PWR:2,?B0_LNA_HCURR:1>>).
--define(B0_STATUS, <<0:1,?B0_RX_DR:1,?B0_TX_DS:1,?B0_MAX_RT:1,0:4>>).
--define(B0_OBSERVE_TX, <<0>>).
--define(B0_DYNPD, <<0:2,?B0_DPL_P5:1,?B0_DPL_P4:1,?B0_DPL_P3:1,
-                    ?B0_DPL_P2:1,?B0_DPL_P1:1,?B0_DPL_P0:1>>).
--define(B0_FEATURE, <<0:5,?B0_EN_DPL:1,?B0_EN_ACK_PAY:1,?B0_EN_DYN_ACK:1>>).
+-define(B0_CONFIG, [0 bor (?B0_MASK_RX_DR bsl 6) bor (?B0_MASK_TX_DS bsl 5) bor (?B0_MASK_MAX_RT bsl 4) bor
+                    (?B0_EN_CRC bsl 3) bor (?B0_CRCO bsl 2) bor (?B0_PWR_UP bsl 1) bor (?B0_PRIM_RX bsl 0)]).
+-define(B0_EN_AA, [0 bor (?B0_ENAA_P5 bsl 5) bor (?B0_ENAA_P4 bsl 4) bor (?B0_ENAA_P3 bsl 3) bor
+                   (?B0_ENAA_P2 bsl 2) bor (?B0_ENAA_P1 bsl 1) bor (?B0_ENAA_P0 bsl 0)]).
+-define(B0_EN_RXADDR, [0 bor (?B0_ERX_P5 bsl 5) bor (?B0_ERX_P4 bsl 4) bor (?B0_ERX_P3 bsl 3) bor
+                       (?B0_ERX_P2 bsl 2) bor (?B0_ERX_P1 bsl 1) bor (?B0_ERX_P0 bsl 0)]).
+-define(B0_SETUP_AW, [?B0_AW]).
+-define(B0_SETUP_RETR, [(?B0_ARD bsl 4) bor (?B0_ARC bsl 0)]).
+-define(B0_RF_SETUP, [0 bor (?B0_RF_DR bsl 3) bor (?B0_RF_PWR bsl 1) bor (?B0_LNA_HCURR bsl 0)]).
+-define(B0_STATUS, [0 bor (?B0_RX_DR bsl 6) bor (?B0_TX_DS bsl 5) bor (?B0_MAX_RT bsl 4)]).
+-define(B0_OBSERVE_TX, [0]).
+-define(B0_DYNPD, [0 bor (?B0_DPL_P5 bsl 5) bor (?B0_DPL_P4 bsl 4) bor (?B0_DPL_P3 bsl 3) bor
+                   (?B0_DPL_P2 bsl 2) bor (?B0_DPL_P1 bsl 1) bor (?B0_DPL_P0 bsl 0)]).
+-define(B0_FEATURE, [0 bor (?B0_EN_DPL bsl 2) bor (?B0_EN_ACK_PAY bsl 1) bor (?B0_EN_DYN_ACK bsl 0)]).
 
 -define(RFM70_MAX_PACKET_LEN, 32).
 

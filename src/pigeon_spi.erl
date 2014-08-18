@@ -2,6 +2,7 @@
 
 %% API
 -export([init/2,
+         rw_byte/2,
          rw/2,
          rw/4]).
 
@@ -29,4 +30,7 @@ init(_Channel, _Speed) ->
     error(nif_not_loaded).
 
 rw(_Channel, _Data) ->
+    error(nif_not_loaded).
+
+rw_byte(_Channel, _Data) ->
     error(nif_not_loaded).

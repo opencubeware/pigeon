@@ -56,10 +56,31 @@ static ERL_NIF_TERM rw(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     return enif_make_tuple(env, 2, OK, enif_make_binary(env, &receive));
 }
 
+static ERL_NIF_TERM rw_byte(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+    int channel, byte;
+    unsigned char receive[1];
+
+    if(!enif_get_int(env, argv[0], &channel)) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_int(env, argv[1], &byte) || byte < 0 || byte > 255) {
+        return enif_make_badarg(env);
+    }
+
+    receive[0] = byte;
+    if(wiringPiSPIDataRW(channel, receive, 1) == -1) {
+        return ERROR;
+    }
+
+    return enif_make_int(env, (int)receive[0]);
+}
+
 static ErlNifFunc nif_funcs[] =
 {
     {"init", 2, init},
-    {"rw", 2, rw}
+    {"rw", 2, rw},
+    {"rw_byte", 2, rw_byte}
 };
 
 ERL_NIF_INIT(pigeon_spi, nif_funcs, load, NULL, NULL, NULL);

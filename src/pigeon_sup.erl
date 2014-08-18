@@ -26,9 +26,6 @@ start_link() ->
 
 init([]) ->
     {ok, { {one_for_one, 5, 10}, [
-                ?CHILD(ocw_dnssd,          [pigeon], worker),
-                ?CHILD(pigeon_metrics,     [],       worker),
-                ?CHILD(pigeon_message_sup, [],       supervisor),
-                ?CHILD(pigeon_radio_sup,   [],       supervisor)
+                ?CHILD(rfm70, [], worker)
                 ]} }.
 
